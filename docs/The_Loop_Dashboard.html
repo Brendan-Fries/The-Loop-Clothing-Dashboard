@@ -39,7 +39,10 @@ ul.task-list li input[type="checkbox"] {
 <link href="site_libs/quarto-html/quarto-syntax-highlighting-7b89279ff1a6dce999919e0e67d4d9ec.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-2913577528bc379eb80ca433547cefa4.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-1d4f84655f446305ac42a8f1abcf7405.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="site_libs/quarto-contrib/intersection-observer-polyfill-1.0.0/intersection-observer.js"></script>
+<script src="site_libs/quarto-contrib/scrollama-3.2.0/scrollama.min.js"></script>
+<script src="site_libs/quarto-contrib/closeread-0.1.0/closeread.js"></script>
 <meta name="shinylive:serviceworker_dir" content=".">
 <script src="site_libs/quarto-contrib/shinylive-0.9.1/shinylive/load-shinylive-sw.js" type="module"></script>
 <script src="site_libs/quarto-contrib/shinylive-0.9.1/shinylive/run-python-blocks.js" type="module"></script>
@@ -72,20 +75,23 @@ ul.task-list li input[type="checkbox"] {
     "search-label": "Search"
   }
 }</script>
+<meta cr-debug-mode="false">
+<meta cr-remove-header-space="true">
 
 
+<link rel="stylesheet" href="site_libs\quarto-contrib\quarto-project\qmd-lab\closeread\closeread.css">
 </head>
 
-<body class="fullcontent quarto-light">
+<body class="quarto-light">
 
 <div id="quarto-search-results"></div>
 <!-- content -->
-<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-full">
 <!-- sidebar -->
 <!-- margin-sidebar -->
     
 <!-- main -->
-<main class="content page-columns page-full" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"></header>
+<main class="content page-columns page-full column-body" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"></header>
 
 
 
@@ -95,7 +101,7 @@ ul.task-list li input[type="checkbox"] {
 #|   shinylive does not work in self-contained HTML documents.
 #|   Please set `embed-resources: false` in your metadata.
 #| standalone: true
-#| viewerHeight: 875
+#| viewerHeight: 900
 
 library(shiny)
 library(bslib)
@@ -187,18 +193,18 @@ ui &lt;- page_sidebar(
   ),
   
   layout_columns(
-    value_box(title = "Total Items Distributed", value = textOutput("total_items"), theme_color = "secondary"),
-    value_box(title = "Total Visitors", value = textOutput("total_visitors"), theme_color = "secondary"),
-    value_box(title = "Top Donation Group", value = textOutput("top_group"), theme_color = "secondary"),
+    value_box(title = "Total Items Distributed", value = textOutput("total_items"), showcase = icon("shirt"), theme = "secondary"),
+    value_box(title = "Total Visitors", value = textOutput("total_visitors"), showcase = icon("person"), theme = "secondary"),
+    value_box(title = "Top Donation Group", value = textOutput("top_group"), showcase = icon("box-open"), theme = "secondary"),
     card(card_header("Clothing Type Breakdown"), plotOutput("donut_plot")),
     card(card_header("Visitor Donations"), plotOutput("bar_plot")),
     card(card_header("Items Picked Up Over Time"), plotOutput("line_plot")),
-    col_widths = c(4, 4, 4, 6, 6, 12),
-    row_heights = c(1, 5, 3)
+    col_widths = c(4, 4, 4, 4, 8, 12),
+    row_heights = c(1.5, 5, 4.3)
   )
 )
 
-# --- 4. SERVER SECTION ---
+# --- 4. SERVER SECTION ---5
 server &lt;- function(input, output, session) {
   
   # Check for file existence to trigger UI warning
@@ -247,34 +253,85 @@ server &lt;- function(input, output, session) {
   output$total_visitors &lt;- renderText({ format(nrow(filtered_df()), big.mark = ",") })
   output$total_items &lt;- renderText({ format(sum(filtered_df()$Total_Items), big.mark = ",") })
   
+  # 1. Line Plot (Weekly Spaced X-Axis)
   output$line_plot &lt;- renderPlot({
     req(nrow(filtered_df()) &gt; 0)
-    plot_data &lt;- filtered_df() %&gt;% group_by(Visit_Date) %&gt;% summarise(daily = sum(Total_Items)) %&gt;% arrange(Visit_Date)
+    
+    plot_data &lt;- filtered_df() %&gt;% 
+      group_by(Visit_Date) %&gt;% 
+      summarise(daily = sum(Total_Items)) %&gt;% 
+      arrange(Visit_Date)
+    
+    # Generate a sequence of dates spaced exactly 1 week apart for the axis
+    date_range &lt;- range(plot_data$Visit_Date, na.rm = TRUE)
+    # Handle single-point edge case
+    if (diff(date_range) == 0) {
+      week_ticks &lt;- date_range[1]
+    } else {
+      week_ticks &lt;- seq(from = date_range[1], to = date_range[2], by = "week")
+    }
+
     par(bg = NA, fg = "white", col.axis = "white", col.lab = "white", mar = c(4, 4, 1, 1))
-    plot(plot_data$Visit_Date, plot_data$daily, type = "l", lwd = 3, col = "hotpink", xlab = "Date", ylab = "Items", axes = FALSE)
-    axis(1, plot_data$Visit_Date, format(plot_data$Visit_Date, "%b"), col = "white", col.axis = "white")
+    
+    plot(plot_data$Visit_Date, plot_data$daily, 
+         type = "l", lwd = 3, col = "hotpink", 
+         xlab = "Date", ylab = "Items", axes = FALSE)
+    
+    # Use the weekly sequence for the ticks
+    axis(1, at = week_ticks, labels = format(week_ticks, "%b %d"), col = "white", col.axis = "white")
     axis(2, col = "white", col.axis = "white")
     grid(col = "gray", lty = "dotted")
   })
   
+  # 2. Bar Plot (Now Shows ITEMS)
   output$bar_plot &lt;- renderPlot({
     req(nrow(filtered_df()) &gt; 0)
-    counts &lt;- table(filtered_df()$Donation_Status)
-    par(bg = NA, fg = "white", col.axis = "white", col.lab = "white", mar = c(3, 4, 1, 1))
-    bp &lt;- barplot(counts, col = c("#0A3B5D", "#a99768", "#FFFFFF"), border = NA, ylab = "Visitors", axes = FALSE)
+    
+    # Summarize Item Counts (formerly in donut plot)
+    item_summ &lt;- filtered_df() %&gt;%
+      pivot_longer(cols = any_of(item_cols), names_to = "Item", values_to = "Count") %&gt;%
+      group_by(Item) %&gt;%
+      summarise(Total = sum(Count)) %&gt;%
+      filter(Total &gt; 0) %&gt;%
+      arrange(desc(Total))
+      
+    counts &lt;- item_summ$Total
+    
+    # Increase bottom margin (first number in c()) to fit item names
+    par(bg = NA, fg = "white", col.axis = "white", col.lab = "white", mar = c(7, 4, 1, 1))
+    
+    bp &lt;- barplot(counts, 
+                  col = cbbPalette[1:length(counts)], # Use colorful palette for items
+                  border = NA, 
+                  ylab = "Count", 
+                  axes = FALSE,
+                  names.arg = item_summ$Item,
+                  las = 2, # Rotates text 90 degrees so "Collared Shirts" fits
+                  ylim = c(0, max(counts) * 1.1)) # 10% headroom for labels) 
+                  
     axis(2, col = "white", col.axis = "white")
-    text(x = bp, y = -0.5, labels = names(counts), xpd = TRUE, col = "white", cex = 1.1)
+    text(x = bp, y = counts, labels = counts, pos = 3, col = "white", font = 2)
   })
   
+  # 3. Donut Plot (Now Shows DONATION STATUS)
   output$donut_plot &lt;- renderPlot({
     req(nrow(filtered_df()) &gt; 0)
-    data &lt;- filtered_df() %&gt;% pivot_longer(cols = any_of(item_cols), names_to = "Item", values_to = "Count") %&gt;%
-      group_by(Item) %&gt;% summarise(Total = sum(Count)) %&gt;% filter(Total &gt; 0) %&gt;% arrange(desc(Total))
-    slices &lt;- data$Total
-    lbls &lt;- paste(data$Item, round(slices/sum(slices)*100), "%")
-    par(bg = NA, mar = c(0,0,0,0))
-    pie(slices, labels = lbls, col = cbbPalette[1:length(slices)], border = "white", radius = 1, cex = 1.1, col.lab = "white")
-    symbols(0, 0, circles = 0.5, add = TRUE, bg = "#36454F", inches = FALSE)
+    
+    # Count Donation Status (formerly in bar plot)
+    counts &lt;- table(filtered_df()$Donation_Status)
+    
+    slices &lt;- as.numeric(counts)
+    lbls &lt;- paste(names(counts), round(slices/sum(slices)*100), "%")
+    
+    par(bg = NA, fg = "white", mar = c(0,0,0,0))
+    
+    # Use the specific donation colors (Blue/Gold/White)
+    pie(slices, labels = lbls, 
+        col = c("#0A3B5D", "#a99768", "#FFFFFF"), 
+        border = "white", 
+        radius = 0.75, 
+        cex = 1.0, 
+        col.lab = "white")
   })
 }
 
