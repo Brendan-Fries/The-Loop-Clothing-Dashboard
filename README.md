@@ -66,7 +66,7 @@ The dashboard expects a CSV file named `loop-data.csv` with the following column
 
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/Brendan-Fries/The-Loop-Clothing-Dashboard]
+    git clone <https://github.com/Brendan-Fries/The-Loop-Clothing-Dashboard>
     ```
 
 2.  **Install Required R Packages**
