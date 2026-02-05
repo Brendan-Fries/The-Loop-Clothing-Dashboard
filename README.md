@@ -45,10 +45,10 @@ Unlike traditional Shiny apps that require an R server (like Shinyapps.io), this
 ---
 
 ## Project Structure
-├── The_Loop_Dashboard.qmd          # Main Quarto document containing the R code and UI
-├── loop-data-ldw-2026.csv      # Source data file (must be in root directory)
-├── README.md          # Project documentation
-└── _site/             # Generated HTML files (created after rendering)
+* ├── The_Loop_Dashboard.qmd          # Main Quarto document containing the R code and UI
+* ├── loop-data-ldw-2026.csv      # Source data file (must be in root directory)
+* ├── README.md          # Project documentation
+* ├── _site/             # Generated HTML files (created after rendering)
 
 ## Data Requirements
 The dashboard expects a CSV file named `loop-data.csv` with the following columns:
@@ -66,7 +66,7 @@ The dashboard expects a CSV file named `loop-data.csv` with the following column
 
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/your-username/your-repo.git](https://github.com/your-username/your-repo.git)
+    git clone [https://github.com/Brendan-Fries/The-Loop-Clothing-Dashboard]
     ```
 
 2.  **Install Required R Packages**
