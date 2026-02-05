@@ -5,7 +5,7 @@ Dashboard of Analytics from The Loop GWU Clothing & Textile Exchange
 An interactive, serverless dashboard designed to visualize operations data for **The Loop**, a clothing exchange program. This application tracks inventory distribution, visitor demographics, and donation trends to help stakeholders understand community engagement and resource flow.
 
 ## Live Demo
-*[Insert Link to your GitHub Pages site here, e.g., https://username.github.io/repo-name/]*
+*[https://brendan-fries.github.io/The-Loop-Clothing-Dashboard/The_Loop_Dashboard.html]*
 
 ---
 
@@ -45,8 +45,6 @@ Unlike traditional Shiny apps that require an R server (like Shinyapps.io), this
 ---
 
 ## Project Structure
-
-```text
 ├── The_Loop_Dashboard.qmd          # Main Quarto document containing the R code and UI
 ├── loop-data-ldw-2026.csv      # Source data file (must be in root directory)
 ├── README.md          # Project documentation
