@@ -1,0 +1,301 @@
+---
+format: 
+  closeread-html:
+    remove-header-space: true
+    resources: 
+      - shinylive-sw.js
+filters:
+  - shinylive
+---
+
+:::{.column-screen}
+```{shinylive-r}
+#| standalone: true
+#| viewerHeight: 900
+
+# Load necessary libraries for the app
+library(shiny)      # Core framework for building web applications
+library(bslib)      # For modern Bootstrap themes and layouts
+library(dplyr)      # For data manipulation (filtering, selecting, mutating)
+library(tidyr)      # For tidying data (handling NAs, pivoting)
+library(lubridate)  # For robust date parsing and manipulation
+
+# --- 1. DATA LOADING ---
+# FIX: Use local CSV instead of downloading Excel
+# We rely on the 'resources' in the YAML header to put this file here.
+# Define the filename that the app expects to find in the virtual file system
+csv_file <- "loop-data.csv" 
+
+# Error prevention: Check if file loaded correctly
+# This if-statement prevents the app from crashing if the CSV is missing
+if (file.exists(csv_file)) {
+  # Load data using base R (Robust in WebAssembly)
+  # 'check.names = FALSE' keeps original headers; 'stringsAsFactors = FALSE' keeps text as text
+  df <- read.csv(csv_file, check.names = FALSE, stringsAsFactors = FALSE)
+  
+  # --- 2. DATA CLEANING ---
+  # Remove leading/trailing whitespace from column names to prevent matching errors
+  names(df) <- trimws(names(df))
+  
+  # Define the specific columns that represent clothing items
+  item_cols <- c("Tops", "Collared Shirts", "Sweaters", "Pants", "Skirts", 
+                 "Shorts", "Dresses", "Outerwear", "Shoes", "Accessories")
+
+  # Create a clean dataframe with transformations
+  df_clean <- df %>%
+    # Replace any NA (missing) values in the item columns with 0 to allow math operations
+    mutate(across(any_of(item_cols), ~replace_na(as.numeric(.), 0))) %>%
+    mutate(
+      # Calculate the total items per visit by summing across the item columns
+      Total_Items = rowSums(select(., any_of(item_cols))),
+      # Robust Date Parse: Handles Excel numeric dates OR text dates
+      # Attempts multiple date formats (ymd, mdy, etc.) to ensure correct parsing
+      Visit_Date = as.Date(parse_date_time(`Visit Date`, orders = c("ymd", "mdy", "dmy", "Ymd", "m/d/y"))),
+      # Standardize the 'Donation Status' column using conditional logic
+      Donation_Status = case_when(
+        `Did you bring donations with you today?` == "Yes" ~ "Donated",
+        `Did you bring donations with you today?` == "No" ~ "Did Not Donate",
+        `Did you bring donations with you today?` == "Donated at blue bin" ~ "Donated at a blue bin",
+        TRUE ~ `Did you bring donations with you today?` # Keep original if no match
+      ),
+      # Convert Donation Status to a factor to enforce a specific order in plots
+      Donation_Status = factor(Donation_Status, levels = c("Donated", "Donated at a blue bin", "Did Not Donate"))
+    ) %>%
+    # Remove rows where Donation_Status could not be determined (NA)
+    filter(!is.na(Donation_Status))
+
+  # Handle Demographics Column
+  # Create a sorted list of unique demographic groups for the filter buttons
+  if("Demographics" %in% names(df_clean)) {
+    demographic_choices <- sort(unique(df_clean$Demographics))
+  } else {
+    # Fallback if the column is missing
+    df_clean$Demographics <- "All"
+    demographic_choices <- c("All")
+  }
+} else {
+  # Fallback if file missing (Prevents white screen crash)
+  # Creates an empty dataframe so the app can still open (albeit empty)
+  df_clean <- data.frame()
+  demographic_choices <- c("Error: CSV Missing")
+}
+
+# Helper function to generate unique ID strings for the buttons (removes special chars)
+get_btn_id <- function(x) { paste0("btn_", gsub("[^a-zA-Z0-9]", "", x)) }
+
+# Color blind friendly palette for plotting
+cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7", "#000000", "red", "purple", "#a99768")
+
+# --- 3. UI SECTION ---
+# Define the user interface using a sidebar layout
+ui <- page_sidebar(
+  # Set the visual theme to "darkly" (dark mode)
+  theme = bs_theme(bootswatch = "darkly", bg = "#36454F", fg = "white", success = "green", font = NULL),
+  
+  # Inject custom CSS to style the filter buttons and plots
+  tags$head(tags$style(HTML("
+    .demo-btn { margin-bottom: 6px; width: 100%; text-align: left; border-radius: 5px; }
+    .demo-btn.active-filter { background-color: #00bc8c !important; color: white !important; border: 1px solid #00bc8c; }
+    .demo-btn.inactive-filter { background-color: transparent !important; color: #aaa !important; border: 1px solid #555; }
+    img.plot-img { background-color: transparent !important; }
+  "))),
+
+  # App title block
+  titlePanel(div("The Loop: Clothing Exchange Dashboard", style = "color: hotpink; font-size: 30px; font-weight: bold;")),
+  
+  # Sidebar configuration containing controls
+  sidebar = sidebar(
+    title = "Visitors",
+    class = "bg-secondary", # Set sidebar background color
+    
+    # Error Message Display: Only shows if the CSV file was not found
+    conditionalPanel(
+      condition = "output.file_error == true",
+      h4("ERROR", style="color: red;"), 
+      p("loop-data.csv not found in resources.")
+    ),
+    
+    h5("Select Categories:"),
+    # Placeholder for the dynamic buttons generated in the server
+    uiOutput("individual_buttons_ui"),
+    hr(),
+    # Bulk action buttons for filtering
+    actionButton("select_all", "Select All", class = "btn-primary w-100 mb-2"),
+    actionButton("clear_all", "Deselect All", class = "btn-warning w-100"),
+    hr(),
+    # Logo directly in UI (No need for Server render) - uses an external URL
+    tags$img(src = "https://gwtoday.gwu.edu/sites/g/files/zaxdzs5401/files/2024-09/theloopopening_2024.8.30_jtovin_0048_1920.jpg", width = "100%", height = "auto")
+  ),
+  
+  # Main layout grid for charts and value boxes
+  layout_columns(
+    # Top row: Value boxes for high-level metrics
+    value_box(title = "Total Items Distributed", value = textOutput("total_items"), showcase = icon("shirt"), theme = "secondary"),
+    value_box(title = "Total Visitors", value = textOutput("total_visitors"), showcase = icon("person"), theme = "secondary"),
+    value_box(title = "Top Donation Group", value = textOutput("top_group"), showcase = icon("box-open"), theme = "secondary"),
+    # Middle/Bottom rows: Plots inside cards
+    card(card_header("Clothing Type Breakdown"), plotOutput("donut_plot")),
+    card(card_header("Visitor Donations"), plotOutput("bar_plot")),
+    card(card_header("Items Picked Up Over Time"), plotOutput("line_plot")),
+    # Define column widths and row heights for the grid layout
+    col_widths = c(4, 4, 4, 4, 8, 12),
+    row_heights = c(1.5, 5, 4.3)
+  )
+)
+
+# --- 4. SERVER SECTION ---5
+server <- function(input, output, session) {
+  
+  # Check for file existence to trigger UI warning
+  # This reactive value tracks if the CSV exists and sends it to the UI conditional panel
+  output$file_error <- reactive({ !file.exists(csv_file) })
+  outputOptions(output, "file_error", suspendWhenHidden = FALSE)
+
+  # Reactive value to store the list of currently selected demographics
+  selected_demos <- reactiveVal(demographic_choices)
+  
+  # Render the individual filter buttons dynamically
+  output$individual_buttons_ui <- renderUI({
+    current <- selected_demos()
+    # Loop through choices to create a button for each
+    btn_list <- lapply(demographic_choices, function(d) {
+      btn_id <- get_btn_id(d)
+      is_selected <- d %in% current
+      # Change style based on selection status
+      cls <- if(is_selected) "demo-btn active-filter" else "demo-btn inactive-filter"
+      icon_status <- if(is_selected) icon("check") else icon("xmark")
+      actionButton(btn_id, label = d, icon = icon_status, class = cls)
+    })
+    do.call(tagList, btn_list)
+  })
+  
+  # Create observers for each button to handle click events
+  observe({
+    lapply(demographic_choices, function(d) {
+      btn_id <- get_btn_id(d)
+      observeEvent(input[[btn_id]], {
+        current <- selected_demos()
+        # Toggle: If in list, remove it; if not in list, add it
+        if (d %in% current) selected_demos(setdiff(current, d))
+        else selected_demos(c(current, d))
+      })
+    })
+  })
+  
+  # Bulk action observers
+  observeEvent(input$select_all, { selected_demos(demographic_choices) })
+  observeEvent(input$clear_all, { selected_demos(character(0)) })
+  
+  # Create a filtered dataframe that updates whenever the selection changes
+  filtered_df <- reactive({
+    req(length(selected_demos()) > 0) # Stop calculation if nothing is selected
+    df_clean %>% dplyr::filter(Demographics %in% selected_demos())
+  })
+  
+  # Calculate and render the "Top Donation Group" text
+  output$top_group <- renderText({
+    req(nrow(filtered_df()) > 0)
+    filtered_df() %>% count(Donation_Status) %>% filter(n == max(n)) %>% 
+      pull(Donation_Status) %>% as.character() %>% first()
+  })
+  
+  # Render simple text stats
+  output$total_visitors <- renderText({ format(nrow(filtered_df()), big.mark = ",") })
+  output$total_items <- renderText({ format(sum(filtered_df()$Total_Items), big.mark = ",") })
+  
+  # 1. Line Plot (Weekly Spaced X-Axis)
+  output$line_plot <- renderPlot({
+    req(nrow(filtered_df()) > 0)
+    
+    # Aggregate items by date
+    plot_data <- filtered_df() %>% 
+      group_by(Visit_Date) %>% 
+      summarise(daily = sum(Total_Items)) %>% 
+      arrange(Visit_Date)
+    
+    # Generate a sequence of dates spaced exactly 1 week apart for the axis
+    date_range <- range(plot_data$Visit_Date, na.rm = TRUE)
+    # Handle single-point edge case (if only one day of data exists)
+    if (diff(date_range) == 0) {
+      week_ticks <- date_range[1]
+    } else {
+      week_ticks <- seq(from = date_range[1], to = date_range[2], by = "week")
+    }
+
+    # Set plot parameters: Transparent background, white text/axes
+    par(bg = NA, fg = "white", col.axis = "white", col.lab = "white", mar = c(4, 4, 1, 1))
+    
+    # Draw the line chart
+    plot(plot_data$Visit_Date, plot_data$daily, 
+         type = "l", lwd = 3, col = "hotpink", 
+         xlab = "Date", ylab = "Items", axes = FALSE)
+    
+    # Use the weekly sequence for the ticks on the X-axis
+    axis(1, at = week_ticks, labels = format(week_ticks, "%b %d"), col = "white", col.axis = "white")
+    axis(2, col = "white", col.axis = "white") # Y-axis
+    grid(col = "gray", lty = "dotted") # Add grid lines
+  })
+  
+  # 2. Bar Plot (Now Shows ITEMS)
+  output$bar_plot <- renderPlot({
+    req(nrow(filtered_df()) > 0)
+    
+    # Summarize Item Counts (formerly in donut plot)
+    # Pivot data longer to count totals for each clothing category
+    item_summ <- filtered_df() %>%
+      pivot_longer(cols = any_of(item_cols), names_to = "Item", values_to = "Count") %>%
+      group_by(Item) %>%
+      summarise(Total = sum(Count)) %>%
+      filter(Total > 0) %>%
+      arrange(desc(Total))
+      
+    counts <- item_summ$Total
+    
+    # Increase bottom margin (first number in c()) to fit item names
+    par(bg = NA, fg = "white", col.axis = "white", col.lab = "white", mar = c(7, 4, 1, 1))
+    
+    # Draw bar plot
+    bp <- barplot(counts, 
+                  col = cbbPalette[1:length(counts)], # Use colorful palette for items
+                  border = NA, 
+                  ylab = "Count", 
+                  axes = FALSE,
+                  names.arg = item_summ$Item,
+                  las = 2, # Rotates text 90 degrees so "Collared Shirts" fits
+                  ylim = c(0, max(counts) * 1.1)) # 10% headroom for labels) 
+                  
+    axis(2, col = "white", col.axis = "white")
+    # Add value labels on top of the bars
+    text(x = bp, y = counts, labels = counts, pos = 3, col = "white", font = 2)
+  })
+  
+  # 3. Donut Plot (Now Shows DONATION STATUS)
+  output$donut_plot <- renderPlot({
+    req(nrow(filtered_df()) > 0)
+    
+    # Count Donation Status (formerly in bar plot)
+    counts <- table(filtered_df()$Donation_Status)
+    
+    slices <- as.numeric(counts)
+    lbls <- paste(names(counts), round(slices/sum(slices)*100), "%")
+    
+    # Set margins to 0 for a tight fit
+    par(bg = NA, fg = "white", mar = c(0,0,0,0))
+    
+    # Use the specific donation colors (Blue/Gold/White)
+    pie(slices, labels = lbls, 
+        col = c("#0A3B5D", "#a99768", "#FFFFFF"), 
+        border = "white", 
+        radius = 0.75, 
+        cex = 1.0, 
+        col.lab = "white")
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+## file: loop-data.csv
+## type: binary
+{{< base64 loop-data-ldw-2026.csv >}}
+```
+:::
